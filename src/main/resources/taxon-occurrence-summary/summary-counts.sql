@@ -1,15 +1,15 @@
--- This will generate the basic summary views
+-- Generates the basic summary counts.
 --
 -- This template uses the following parameters
 --   {{occurrence}} table
---   {{checklistUUID}} for the taxonomy
+--   {{checklistKey}} for the taxonomy
 --   {{topNDataset}} for the number of datasets to return
 
 WITH base AS (
   SELECT
     gbifID,
-    classificationDetails['{{checklistUUID}}']['taxonkey'] AS taxonKey,
-    classificationDetails['{{checklistUUID}}']['specieskey'] AS speciesKey,
+    classificationDetails['{{checklistKey}}']['taxonkey'] AS taxonKey,
+    classificationDetails['{{checklistKey}}']['specieskey'] AS speciesKey,
     decimalLatitude,
     decimalLongitude,
     year,
