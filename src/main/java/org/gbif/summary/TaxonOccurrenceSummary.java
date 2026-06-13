@@ -3,6 +3,7 @@ package org.gbif.summary;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import lombok.Builder;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -20,7 +21,10 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 
-/** Generates occurrence summary statistics for each taxon and stores them in Iceberg and HBase. */
+/**
+ * Generates occurrence summary statistics for each taxon and stores them in Iceberg and HBase
+ * tables.
+ */
 @Builder
 public class TaxonOccurrenceSummary {
   private String sourceDB; // iceberg catalog
@@ -30,6 +34,8 @@ public class TaxonOccurrenceSummary {
   @Builder.Default private String targetTable = "occurrence_taxon_summary"; // from iceberg
 
   private String hbaseZk;
+
+  private String hbaseZnode;
   private String hbaseTable; // to populate
 
   @Builder.Default
@@ -57,26 +63,37 @@ public class TaxonOccurrenceSummary {
       spark.sql("use " + sourceDB);
 
       // summary statistics
-      Dataset<Row> summary =
-          spark.sql(
-              readFile("/taxon-resource-summary/summary-counts.sql")
-                  .replace("{{occurrence}}", sourceTable)
-                  .replace("{{checklistUUID}}", checklistKey)
-                  .replace("{{topNDataset}}", topNDatasets));
+      String summarySQL =
+          readFile("/taxon-occurrence-summary/summary-counts.sql")
+              .replace("{{occurrence}}", String.format("iceberg.%s.%s", sourceDB, sourceTable))
+              .replace("{{checklistKey}}", checklistKey)
+              .replace("{{topNDataset}}", topNDatasets);
+      System.err.println(summarySQL);
+      Dataset<Row> summary = spark.sql(summarySQL);
 
-      // top N species per taxon
-      Dataset<Row> taxa =
-          spark.sql(
-              readFile("/taxon-resource-summary/counts-by-rank.sql")
-                  .replace("{{occurrence}}", sourceTable)
-                  .replace("{{checklistUUID}}", checklistKey)
-                  .replace("{{topNTaxa}}", topNTaxa));
+      // top N species per taxon using a prepared table for performance (~2x quicker)
+      String tmpTable = "tmp_lineage_" + UUID.randomUUID().toString().replaceAll("-", "_");
+      String tmpLineageSQL =
+          readFile("/taxon-occurrence-summary/lineage.sql")
+              .replace("{{occurrence}}", String.format("iceberg.%s.%s", sourceDB, sourceTable))
+              .replace("{{checklistKey}}", checklistKey);
+      System.err.println(tmpLineageSQL);
+      spark.sql(tmpLineageSQL).write().format("parquet").mode("overwrite").saveAsTable(tmpTable);
+
+      String rankSQL =
+          readFile("/taxon-occurrence-summary/rank-counts.sql")
+              .replace("{{source}}", tmpTable)
+              .replace("{{topNTaxa}}", topNTaxa);
+      System.err.println(rankSQL);
+      Dataset<Row> taxa = spark.sql(rankSQL);
+      spark.sql(String.format("DROP TABLE IF EXISTS %s PURGE", tmpTable));
 
       Dataset<Row> result = summary.join(taxa, "taxonKey");
-      result.write()
-              .format("iceberg")
-              .mode("overwrite")
-              .save(String.format("iceberg.%s.%s", sourceDB, targetTable));
+      result
+          .write()
+          .format("parquet")
+          .mode("overwrite")
+          .saveAsTable(targetTable); // TODO: make iceberg
     }
   }
 
@@ -97,7 +114,9 @@ public class TaxonOccurrenceSummary {
         switch (name) {
           case "sourceDB" -> builder.sourceDB(value);
           case "sourceTable" -> builder.sourceTable(value);
+          case "targetTable" -> builder.targetTable(value);
           case "hbaseZk" -> builder.hbaseZk(value);
+          case "hbaseZnode" -> builder.hbaseZnode(value);
           case "hbaseTable" -> builder.hbaseTable(value);
           case "checklistKey" -> builder.checklistKey(value);
           case "topNDatasets" -> builder.topNDatasets(value);
@@ -125,6 +144,7 @@ public class TaxonOccurrenceSummary {
   private Configuration hadoopConf() throws IOException {
     Configuration conf = HBaseConfiguration.create();
     conf.set("hbase.zookeeper.quorum", hbaseZk);
+    conf.set("zookeeper.znode.parent", hbaseZnode);
     conf.set(FileOutputFormat.COMPRESS, "true");
     conf.setClass(FileOutputFormat.COMPRESS_CODEC, SnappyCodec.class, CompressionCodec.class);
 

@@ -1,12 +1,11 @@
--- Generates the summary of top N occurring species for all descendant ranks.
+-- Generates the count of occurrences on each classification lineage.
 --
 -- This template uses the following parameters
 --   {{occurrence}} table
 --   {{checklistKey}} for the taxonomy
---   {{topNTaxa}} for the number of taxa to return
 
 WITH base AS (
-  SELECT classificationDetails[{{checklistKey}}] AS c
+  SELECT classificationDetails['{{checklistKey}}'] AS c
   FROM {{occurrence}}
 ),
 
@@ -73,76 +72,10 @@ taxonomy AS (
       x -> x.id IS NOT NULL AND x.id != ''
     ) AS lineage
   FROM base
-),
-
-lineage AS (
-    SELECT
-      lineage,
-      COUNT(*) AS occurrence_count
-    FROM taxonomy
-    GROUP BY lineage;
-),
-
-WITH edges AS (
-  SELECT
-    lineage[i].id AS parent_id,
-    lineage[j].id AS child_id,
-    lineage[j].rank AS child_rank,
-    lineage[j].name AS child_name,
-    occurrence_count AS occCount
-  FROM lineage
-  LATERAL VIEW posexplode(lineage) a AS i, a_struct
-  LATERAL VIEW posexplode(lineage) b AS j, b_struct
-  WHERE i < j
-),
-
-edge_counts AS (
-  SELECT
-    parent_id,
-    child_id,
-    child_rank,
-    child_name,
-    SUM(occCount) AS occCount
-  FROM edges
-  GROUP BY parent_id, child_id, child_rank, child_name
-),
-
-ranked AS (
-  SELECT *,
-    row_number() OVER (
-      PARTITION BY parent_id, child_rank
-      ORDER BY occCount DESC
-    ) AS rn
-  FROM edge_counts
-),
-
-top_children AS (
-  SELECT *
-  FROM ranked
-  WHERE rn <= {{topNTaxa}}
-),
-
-by_rank AS (
-  SELECT
-    parent_id,
-    child_rank,
-    collect_list(
-      named_struct(
-        'taxonKey', child_id,
-        'name', child_name,
-        'occCount', occCount
-      )
-    ) AS children
-  FROM top_children
-  GROUP BY parent_id, child_rank
 )
 
 SELECT
-  parent_id AS taxonKey,
-  map_from_entries(
-    collect_list(
-      struct(child_rank, children)
-    )
-  ) AS childrenByRank
-FROM by_rank
-GROUP BY parent_id;
+  lineage,
+  COUNT(*) AS occCount
+FROM taxonomy
+GROUP BY lineage

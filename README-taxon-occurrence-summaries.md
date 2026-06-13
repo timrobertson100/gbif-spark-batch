@@ -10,9 +10,9 @@ To generate a new table:
 
 Setup hbase:
 ```
-disable 'taxon_occurrence_summary'
-drop 'taxon_occurrence_summary'
-create 'taxon_occurrence_summary',
+disable 'prod_taxon_occurrence_summary'
+drop 'prod_taxon_occurrence_summary'
+create 'prod_taxon_occurrence_summary',
   {NAME => 'o', VERSIONS => 1, COMPRESSION => 'SNAPPY', DATA_BLOCK_ENCODING => 'FAST_DIFF', BLOOMFILTER => 'ROW', TTL => 15552000},
   {NUMREGIONS => 10, SPLITALGO => 'HexStringSplit'}
 ```
