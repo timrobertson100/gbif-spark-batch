@@ -5,32 +5,7 @@
 --   {{checklistKey}} for the taxonomy
 --   {{topNDataset}} for the number of datasets to return
 
-WITH base AS (
-  SELECT
-    gbifID,
-    classificationDetails['{{checklistKey}}']['taxonkey'] AS taxonKey,
-    classificationDetails['{{checklistKey}}']['specieskey'] AS speciesKey,
-    decimalLatitude,
-    decimalLongitude,
-    year,
-    recordedBy,
-    recordedByID,
-    basisOfRecord,
-    scientificName,
-    institutionCode,
-    collectionCode,
-    catalogNumber,
-    month,
-    datasetKey,
-    datasetTitle,
-    countryCode,
-    mediaType,
-    isSequenced,
-    typeStatus
-  FROM {{occurrence}}
-),
-
-taxon_metrics AS (
+WITH taxon_metrics AS (
   SELECT
     taxonKey,
     count(*) AS totalCount,
@@ -40,7 +15,7 @@ taxon_metrics AS (
     count_if(recordedBy IS NOT NULL AND recordedByID IS NOT NULL) AS hasRecorderCount,
     count_if(isSequenced = true) AS isSequencedCount,
     count_if(mediaType IS NOT NULL AND size(mediaType) > 0) AS hasMediaCount
-  FROM base
+  FROM {{occurrence}}
   GROUP BY taxonKey
 ),
 
@@ -48,7 +23,7 @@ month_counts AS (
   SELECT taxonKey, collect_list(struct(month, cnt)) AS monthCounts
   FROM (
     SELECT taxonKey, month, count(*) AS cnt
-    FROM base
+   FROM {{occurrence}}
     GROUP BY taxonKey, month
   ) m
   GROUP BY taxonKey
@@ -58,7 +33,7 @@ bor_counts AS (
   SELECT taxonKey, collect_list(struct(basisOfRecord,cnt)) AS basisOfRecordCounts
   FROM (
     SELECT taxonKey, basisOfRecord, count(*) AS cnt
-    FROM base
+   FROM {{occurrence}}
     GROUP BY taxonKey, basisOfRecord
   ) b
   GROUP BY taxonKey
@@ -68,7 +43,7 @@ country_counts AS (
   SELECT taxonKey, collect_list(struct(countryCode,cnt)) AS countryCounts
   FROM (
     SELECT taxonKey, countryCode, count(*) AS cnt
-    FROM base
+   FROM {{occurrence}}
     GROUP BY taxonKey, countryCode
   ) c
   GROUP BY taxonKey
@@ -89,7 +64,7 @@ dataset_counts AS (
           PARTITION BY taxonKey
           ORDER BY COUNT(*) DESC
         ) AS rn
-      FROM base
+     FROM {{occurrence}}
       GROUP BY taxonKey, datasetKey, datasetTitle
     ) t
     WHERE rn <= {{topNDataset}}
