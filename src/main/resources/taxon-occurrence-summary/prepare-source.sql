@@ -6,7 +6,7 @@
 
 SELECT
   gbifID,
-  classificationDetails['{{checklistKey}}']['taxonkey'] AS taxonKey,
+  classifications['{{checklistKey}}'] AS taxonKeys,
   classificationDetails['{{checklistKey}}']['specieskey'] AS speciesKey,
   decimalLatitude,
   decimalLongitude,

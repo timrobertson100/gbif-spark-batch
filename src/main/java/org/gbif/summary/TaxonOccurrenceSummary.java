@@ -3,6 +3,8 @@ package org.gbif.summary;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import lombok.Builder;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -61,10 +63,9 @@ public class TaxonOccurrenceSummary {
       spark.sql("use " + sourceDB);
 
       // generate a simplified occurrence view for efficient querying
-      // String tmpSource = "tmp_occurrence_view_" +
-      // LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-      String tmpSource = "tmp_occurrence_view";
-      /*
+      String tmpSource =
+          "tmp_occurrence_view_"
+              + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
       spark
           .sql(
               readFile("/taxon-occurrence-summary/prepare-source.sql")
@@ -75,45 +76,31 @@ public class TaxonOccurrenceSummary {
           .mode("overwrite")
           .saveAsTable(tmpSource);
 
-      */
-
       // summary statistics
-      String summarySQL =
-          readFile("/taxon-occurrence-summary/summary-counts.sql")
-              .replace("{{occurrence}}", String.format("%s.%s", sourceDB, tmpSource))
-              .replace("{{checklistKey}}", checklistKey)
-              .replace("{{topNDataset}}", topNDatasets);
-      System.err.println(summarySQL);
-      Dataset<Row> summary = spark.sql(summarySQL);
+      Dataset<Row> summary =
+          spark.sql(
+              readFile("/taxon-occurrence-summary/summary-counts.sql")
+                  .replace("{{occurrence}}", String.format("%s.%s", sourceDB, tmpSource))
+                  .replace("{{checklistKey}}", checklistKey)
+                  .replace("{{topNDataset}}", topNDatasets));
 
-      // top N species per taxon using a prepared table for performance (~2x quicker)
-      /*
-      String tmpTable = "tmp_lineage_" + UUID.randomUUID().toString().replaceAll("-", "_");
-      String tmpLineageSQL =
-          readFile("/taxon-occurrence-summary/lineage.sql")
-              .replace("{{occurrence}}", String.format("iceberg.%s.%s", sourceDB, sourceTable))
-              .replace("{{checklistKey}}", checklistKey);
-      System.err.println(tmpLineageSQL);
-      spark.sql(tmpLineageSQL).write().format("parquet").mode("overwrite").saveAsTable(tmpTable);
-      */
-
-      String rankSQL =
-          readFile("/taxon-occurrence-summary/taxon-counts.sql")
-              .replace("{{occurrence}}", String.format("%s.%s", sourceDB, tmpSource))
-              .replace("{{topNTaxa}}", topNTaxa);
-      System.err.println(rankSQL);
-      Dataset<Row> taxa = spark.sql(rankSQL);
+      // counts by the different ranks
+      Dataset<Row> taxa =
+          spark.sql(
+              readFile("/taxon-occurrence-summary/rank-counts.sql")
+                  .replace("{{occurrence}}", String.format("%s.%s", sourceDB, tmpSource))
+                  .replace("{{topNTaxa}}", topNTaxa));
 
       // create the result to Hive
       summary
-          .join(taxa, "taxonKey")
+          .join(taxa, "taxonKey", "left")
           .write()
           .format("parquet")
           .mode("overwrite")
           .saveAsTable(targetTable);
 
-      // cleanup the temp table
-      // spark.sql(String.format("DROP TABLE IF EXISTS %s.%s PURGE", sourceDB, tmpSource));
+      // cleanup
+      spark.sql(String.format("DROP TABLE IF EXISTS %s.%s PURGE", sourceDB, tmpSource));
     }
   }
 

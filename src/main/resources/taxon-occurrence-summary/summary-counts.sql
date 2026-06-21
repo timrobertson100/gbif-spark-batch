@@ -5,7 +5,34 @@
 --   {{checklistKey}} for the taxonomy
 --   {{topNDataset}} for the number of datasets to return
 
-WITH taxon_metrics AS (
+-- explode to a row per taxon
+WITH base AS (
+  SELECT
+    gbifID,
+    taxonKey,
+    speciesKey,
+    decimalLatitude,
+    decimalLongitude,
+    year,
+    month,
+    recordedBy,
+    recordedByID,
+    basisOfRecord,
+    scientificName,
+    institutionCode,
+    collectionCode,
+    catalogNumber,
+    datasetKey,
+    datasetTitle,
+    countryCode,
+    mediaType,
+    isSequenced,
+    typeStatus
+  FROM {{occurrence}}
+    LATERAL VIEW explode(taxonKeys) t AS taxonKey
+),
+
+taxon_metrics AS (
   SELECT
     taxonKey,
     count(*) AS totalCount,
@@ -15,7 +42,7 @@ WITH taxon_metrics AS (
     count_if(recordedBy IS NOT NULL AND recordedByID IS NOT NULL) AS hasRecorderCount,
     count_if(isSequenced = true) AS isSequencedCount,
     count_if(mediaType IS NOT NULL AND size(mediaType) > 0) AS hasMediaCount
-  FROM {{occurrence}}
+  FROM base
   GROUP BY taxonKey
 ),
 
@@ -23,7 +50,7 @@ month_counts AS (
   SELECT taxonKey, collect_list(struct(month, cnt)) AS monthCounts
   FROM (
     SELECT taxonKey, month, count(*) AS cnt
-   FROM {{occurrence}}
+    FROM base
     GROUP BY taxonKey, month
   ) m
   GROUP BY taxonKey
@@ -33,7 +60,7 @@ bor_counts AS (
   SELECT taxonKey, collect_list(struct(basisOfRecord,cnt)) AS basisOfRecordCounts
   FROM (
     SELECT taxonKey, basisOfRecord, count(*) AS cnt
-   FROM {{occurrence}}
+    FROM base
     GROUP BY taxonKey, basisOfRecord
   ) b
   GROUP BY taxonKey
@@ -43,7 +70,7 @@ country_counts AS (
   SELECT taxonKey, collect_list(struct(countryCode,cnt)) AS countryCounts
   FROM (
     SELECT taxonKey, countryCode, count(*) AS cnt
-   FROM {{occurrence}}
+    FROM base
     GROUP BY taxonKey, countryCode
   ) c
   GROUP BY taxonKey
@@ -64,7 +91,7 @@ dataset_counts AS (
           PARTITION BY taxonKey
           ORDER BY COUNT(*) DESC
         ) AS rn
-     FROM {{occurrence}}
+      FROM base
       GROUP BY taxonKey, datasetKey, datasetTitle
     ) t
     WHERE rn <= {{topNDataset}}
